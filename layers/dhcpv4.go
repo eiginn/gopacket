@@ -330,12 +330,43 @@ const (
 	DHCPOptT2                    DHCPOpt = 59  // 4, uint32
 	DHCPOptClassID               DHCPOpt = 60  // n, []byte
 	DHCPOptClientID              DHCPOpt = 61  // n >=  2, []byte
+	DHCPOptFQDN                  DHCPOpt = 81  // n, string
+	DHCPOptRelayAgentInfo        DHCPOpt = 82  // n, []byte
 	DHCPOptDomainSearch          DHCPOpt = 119 // n, string
 	DHCPOptSIPServers            DHCPOpt = 120 // n, url
 	DHCPOptClasslessStaticRoute  DHCPOpt = 121 //
 	DHCPOptMUDURLV4              DHCPOpt = 161 // n, string
 	DHCPOptEnd                   DHCPOpt = 255
 )
+
+// DHCPRelayOpt represents a DHCP Relay Agent Info suboption from rfc3046 and rfc6607
+type DHCPRelayOpt byte
+
+// Constants for the DHCPRelayOpt options.
+const (
+	DHCPRelayOptCircuitID        DHCPRelayOpt = 1   // n, []byte
+	DHCPRelayOptRemoteID         DHCPRelayOpt = 2   // n, []byte
+	DHCPRelayOptLinkSelection    DHCPRelayOpt = 5   // 4, net.IP
+	DHCPRelayOptServerIDOverride DHCPRelayOpt = 11  // 4, net.IP
+	DHCPRelayOptVRFName          DHCPRelayOpt = 151 // n, string
+)
+
+func (o DHCPRelayOpt) String() string {
+	switch o {
+	case DHCPRelayOptCircuitID:
+		return "CircuitID"
+	case DHCPRelayOptRemoteID:
+		return "RemoteID"
+	case DHCPRelayOptLinkSelection:
+		return "LinkSelection"
+	case DHCPRelayOptServerIDOverride:
+		return "ServerIDOverride"
+	case DHCPRelayOptVRFName:
+		return "VRFName"
+	default:
+		return "Unknown"
+	}
+}
 
 // String returns a string version of a DHCPOpt.
 func (o DHCPOpt) String() string {
@@ -468,6 +499,10 @@ func (o DHCPOpt) String() string {
 		return "ClassID"
 	case DHCPOptClientID:
 		return "ClientID"
+	case DHCPOptFQDN:
+		return "FQDN"
+	case DHCPOptRelayAgentInfo:
+		return "RelayAgentInformation"
 	case DHCPOptDomainSearch:
 		return "DomainSearch"
 	case DHCPOptClasslessStaticRoute:
@@ -492,7 +527,7 @@ func (o DHCPOption) String() string {
 
 	case DHCPOptHostname, DHCPOptMeritDumpFile, DHCPOptDomainName, DHCPOptRootPath,
 		DHCPOptExtensionsPath, DHCPOptNISDomain, DHCPOptNetBIOSTCPScope, DHCPOptXFontServer,
-		DHCPOptXDisplayManager, DHCPOptMessage, DHCPOptDomainSearch: // string
+		DHCPOptXDisplayManager, DHCPOptMessage, DHCPOptDomainSearch, DHCPOptFQDN: // string
 		return fmt.Sprintf("Option(%s:%s)", o.Type, string(o.Data))
 
 	case DHCPOptMessageType:
@@ -527,6 +562,30 @@ func (o DHCPOption) String() string {
 		}
 		buf.WriteString(")")
 		return buf.String()
+
+	default:
+		return fmt.Sprintf("Option(%s:%v)", o.Type, o.Data)
+	}
+}
+
+// DHCPRelayOption rerpresents a DHCP option.
+type DHCPRelayOption struct {
+	Type   DHCPRelayOpt
+	Length uint8
+	Data   []byte
+}
+
+func (o DHCPRelayOption) String() string {
+	switch o.Type {
+
+	case DHCPRelayOptCircuitID, DHCPRelayOptRemoteID:
+		return fmt.Sprintf("RelayOption(%s:%x)", o.Type, o.Data)
+
+	case DHCPRelayOptLinkSelection, DHCPRelayOptServerIDOverride:
+		return fmt.Sprintf("RelayOption(%s:%s)", o.Type, net.IP(o.Data))
+
+	case DHCPRelayOptVRFName:
+		return fmt.Sprintf("RelayOption(%s:%s)", o.Type, o.Data)
 
 	default:
 		return fmt.Sprintf("Option(%s:%v)", o.Type, o.Data)
@@ -575,6 +634,25 @@ func (o *DHCPOption) decode(data []byte) error {
 		o.Data = data[2 : 2+int(o.Length)]
 	}
 	return nil
+}
+
+// DecodeRelayOptions takes a DHCPOption and decodes relay info sub options
+func DecodeRelayOptions(o DHCPOption) ([]DHCPRelayOption, error) {
+	if o.Type != DHCPOptRelayAgentInfo {
+		return nil, DecOptionMalformed
+	}
+	var subOpts []DHCPRelayOption
+	var offset uint8 = 0
+	for offset < o.Length {
+		s := DHCPRelayOption{}
+		s.Type = DHCPRelayOpt(o.Data[offset])
+		s.Length = uint8(o.Data[offset+1])
+		s.Data = o.Data[offset+2 : offset+2+s.Length]
+		offset += s.Length + 2
+		subOpts = append(subOpts, s)
+
+	}
+	return subOpts, nil
 }
 
 // DHCPv4Error is used for constant errors for DHCPv4. It is needed for test asserts.
